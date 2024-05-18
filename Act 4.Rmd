@@ -1,0 +1,549 @@
+---
+title: "Act 4"
+author: "José Gabriel Usiña Mogro"
+date: "2024-05-10"
+output:
+  html_document:
+    theme: cosmo
+    highlight: tango
+    toc: true
+    toc_depth: 3
+    number_sections: TRUE
+    toc_float: true
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+```
+
+# Preparación de la Base de Datos
+
+```{r include=FALSE , warning=FALSE}
+library(dplyr)
+library(cluster)
+library(factoextra)
+library(leaflet.extras)   # to provide extra functionality to the leaflet R package
+library(gmapsdistance)    # allows to calculate distances for a database through Google maps
+#library(rworldmap)       # visualizing global data
+library(tidyverse)        # collection of R packages designed for data science
+library(htmltools)        # tools for HTML generation and output
+library(magrittr)         # decrease development time and improve readability and maintainability of code
+library(leafsync)         # create small multiples of several leaflet web maps
+library(jsonlite)         # a fast JSON parser and generator, optimized for statistical data and the web
+library(leaflet)          # a leading open-source JavaScript library for mobile-friendly interactive maps
+library(foreign)          # reading and writing data stored by several formats
+library(mapview)          # provides functions to conveniently create interactive visualizations of spatial data
+library(tigris)           # allows users to directly download and use TIGER/Line shapefiles from US Census
+#library(rgdal)           # Geospatial Data Abstraction Library 
+library(ggmap)            # to visualize spatial data and models on top of static maps from various online sources
+library(knitr)            # integrates computing and reporting
+library(spdep)            # to create spatial weights matrix objects from polygon contiguities, 
+                          # from point patterns by distance and tessellations
+library(sfdep)            # an interface to 'spdep' to integrate with 'sf' objects and the 'tidyverse
+library(tmap)             # thematic maps can be generated with great flexibility
+library(sf)  
+library(readxl)
+library(sp)
+```
+
+```{r}
+datos_hoteleros <- read_excel("datos hoteleros.xlsx")
+
+datos_hoteleros$`Descripcion estrato personal ocupado`<-as.factor(datos_hoteleros$`Descripcion estrato personal ocupado`)
+
+d1<- read_excel("NL_Llegadas_Aeropuerto_Extranjeros.xlsx")
+d2<- read_excel("NL_Ocupacion_Hotelera_Visitantes.xlsx")
+```
+
+# Tendencia de Turismo 
+
+## Llegadas de Pasajeros
+```{r}
+plot(d1$Periodo,d1$`Llegadas de Pasajeros Nacionales` ,type = "l", xlab="años", ylab="llegadas pasajeros Nacionales", col="cyan4")
+plot(d1$Periodo,d1$`Llegada de Pasajeros Internacionales` ,type = "l", xlab="años", ylab="llegadas pasajeros internacionales", col="cyan4")
+plot(d1$Periodo,d1$`Llegada Total de Pasajeros` ,type = "l", xlab="años", ylab="llegada total pasajeros", col="cyan4")
+
+```
+
+Se puede observar que existe una tendencia a creer en los años anteriores, sin embargo el 2020, debido a la pandemia se obtuvo una caida en la llegada de visitantes
+
+```{r}
+plot(d2$Periodo,d2$`Visitantes Nacionales` ,type = "l", xlab="años", ylab="visitantes nacionales", col="cyan4")
+plot(d2$Periodo,d2$`Visitantes Extranjeros` ,type = "l", xlab="años", ylab="visitantes extranjeros", col="cyan4")
+plot(d2$Periodo,d2$`% de Visitantes Nacionales` ,type = "l", xlab="años", ylab="% visitantes nacionales", col="cyan4")
+plot(d2$Periodo,d2$`% de Visitantes Extranjeros` ,type = "l", xlab="años", ylab="% visitantes nacionales", col="cyan4")
+
+```
+Las tendencias de visitantes nacionales y extranjeros se comportan de manera distinta lo cual nos indica que cada vez hay más visitantes extranjeros. 
+
+# Oferta
+
+```{r}
+# Crear el mapa de Monterrey
+mapa_mty <- leaflet() %>% 
+  addTiles() %>% 
+  setView(-100.31094, 25.66928, zoom = 14)  ### Mty downtown area
+
+
+mapa_mty %>%
+  addMarkers(data = datos_hoteleros,
+             ~Longitud, ~Latitud,
+             popup = ~htmlEscape(`Descripcion estrato personal ocupado`))
+```
+
+Si nos fijamos en nuestro mapa inicial, podemos ver que se agrupan de manera mas concentrada en lo que es la ZMM, especialmente en el centro de Monterrey
+
+## Tamaño del Hotel
+
+Una forma de reconocer la oferta actual es distinguirlos por el tamaño actual de los hoteles, para esto utilizaremos la variable `Descripcion estrato personal ocupado` la cual nos indica el numero de empleados que hay en cada hotel del directorio. Para esto nos enfocaremos en la zona en donde encontramos un *"cluster"* para poder hacer un análisis más detallado
+
+```{r}
+# Definir el polígono que delimita el área del centro de Monterrey
+vertices <- matrix(c(-100.314, -100.308, -100.307, -100.314, -100.314, 
+                     25.672, 25.672, 25.666, 25.666, 25.672), ncol = 2, byrow = TRUE)
+poligono_mty <- Polygon(vertices)
+poligono_mty <- Polygons(list(poligono_mty), ID = "1")
+poligono_mty <- SpatialPolygons(list(poligono_mty))
+
+# Convertir los datos de hoteles a un objeto SpatialPointsDataFrame
+datos_hoteleros_a<-datos_hoteleros
+coordinates(datos_hoteleros_a) <- c("Longitud", "Latitud")
+
+# Seleccionar los hoteles dentro del polígono del área del centro de Monterrey
+hoteles_centro_mty <- datos_hoteleros_a[!is.na(over(datos_hoteleros_a, poligono_mty)), ]
+hoteles_centro_mty_df <- as.data.frame(hoteles_centro_mty)
+
+# Graficar los tamaños de los hoteles dentro del área del centro de Monterrey
+grafico_barras <- ggplot(hoteles_centro_mty_df, aes(x = Descripcion.estrato.personal.ocupado, fill = Nombre.de.clase.de.la.actividad)) +
+  geom_bar() +
+  labs(title = "Tamaños de Hoteles en el Centro de Monterrey",
+       x = "Tamaño del Hotel",
+       y = "Cantidad") + 
+  scale_fill_discrete() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+grafico_barras
+
+```
+Encontramos que la categoría más usada son Hoteles con y sin servicios integrados en casi todas las categorías de tamaño del directorio. 
+
+Ahora nos enfocaremos en estos hallazgos para encontrar como se distribuyen en nuestra zona de interés que es la ZMM.
+
+## Identificación de Cluster en ZMM
+```{r}
+hoteles_hospedaje<-datos_hoteleros%>%
+  filter(`Nombre de clase de la actividad`%in% 
+           c ("Hoteles con otros servicios integrados",
+              "Hoteles sin otros servicios integrados",
+              "Departamentos y casas amueblados con servicios de hotelería"))
+
+color<- colorFactor(palette = c("#8B0000", "#0000FF", "#228B22"),
+                               domain = c("Hoteles con otros servicios integrados",
+                                          "Hoteles sin otros servicios integrados",
+                                          "Departamentos y casas amueblados con servicios de hotelería"))
+  
+mapa_mty %>%
+  addCircleMarkers(data = hoteles_hospedaje,
+             ~Longitud, ~Latitud,
+             radius = 3,
+             color = ~color(`Nombre de clase de la actividad`),
+             popup = ~htmlEscape(`Nombre de la Unidad Económica`)) %>%
+   addLegend(
+    "bottomright", # Posición de la leyenda
+    colors = c("#8B0000", "#0000FF", "#228B22"), # Colores de la leyenda
+    labels = c("Departamentos y casas amueblados con servicios de hotelería",
+               "Hoteles con otros servicios integrados", 
+               "Hoteles sin otros servicios integrados" 
+               ), # Etiquetas de la leyenda
+    title = "Actividades de Hospedaje" # Título de la leyenda
+  )
+
+
+```
+
+Para el análisis en cuestión, donde queremos observar y analizar el mercado de hoteles y servicios hospedaje (ej: airbnb, suites) nos enfocamos unicamente en aquellos que son destinados para los visitantes y turistas de nuevo leon. Se omiten moteles y cabañas ya que su fin comercial es diferente al cual queremos hacer nuestro análisis
+
+Podemos observar que el Centro de la ciudad sigue siendo la zona con más afluencia, y siendo más especificos. Observamos como se caracteriza de una forma particular. Lo que se encuentra cerca de *Avenida Constitución* viene siendo mayormente ocupada por Hoteles con otros servicios integrados (Restaurant, Salon de Eventos, etc), y la zona norte del centro cerca de *Calzada Madero* viene mayormente ocupada por Hoteles sin otros servicios integrados
+
+# Demanda
+
+Para poder comparar la demanda analizaremos los análisis de reseñas y calificaciones de las dos zonas que encontramos para poder ver como es la demanda y en base a que se mueve. También analizaremos ciertas características
+
+```{r warning=FALSE}
+library(RColorBrewer)
+library(wordcloud)
+library(wordcloud2)
+library(googleway) 
+library(ggmap)
+library(dplyr)
+library(tm)
+```
+
+## Reseñas
+
+Para esto tomaremos un punto medio aproximado de cada una de las zonas identificadas. Para la zona de Calzada Madero sera el *HOTEL MADERO EXPRESS* y para Avenida Constitución será *FIESTA AMERICANA PABELLON M MONTERREY*
+
+```{r}
+latitud_madero<- subset(datos_hoteleros,`Nombre de la Unidad Económica`=="HOTEL MADERO EXPRESS")$Latitud
+longitud_madero<-subset(datos_hoteleros,`Nombre de la Unidad Económica`=="HOTEL MADERO EXPRESS")$Longitud
+
+latitud_const<- subset(datos_hoteleros,`Nombre de la Unidad Económica`=="FIESTA AMERICANA PABELLON M MONTERREY")$Latitud
+longitud_const<-subset(datos_hoteleros,`Nombre de la Unidad Económica`=="FIESTA AMERICANA PABELLON M MONTERREY")$Longitud
+
+r<-2000
+```
+
+```{r include=FALSE}
+gmaps_key<-"AIzaSyAFlX9YjZkn3Fe2b-fOJiVf6hhwVTxOxBU"
+```
+
+### Madero
+
+```{r}
+search_str_madero<-google_places(search_string = 'hoteles', location=c(latitud_madero,longitud_madero), radius=r, key=gmaps_key)
+search_str_madero_add<-google_places(search_string = 'hoteles', location=c(latitud_madero,longitud_madero), radius=r, key=gmaps_key, page_token = search_str_madero$next_page_token)
+```
+
+```{r}
+business_name<-c(search_str_madero$results$name, search_str_madero_add$results$name)
+business_rating<-c(search_str_madero$results$rating, search_str_madero_add$results$rating)
+user_ratings_total<-c(search_str_madero$results$user_ratings_total, search_str_madero_add$results$user_ratings_total)
+place_id<-c(search_str_madero$results$place_id, search_str_madero_add$results$place_id)
+lat<-c(search_str_madero$results$geometry$location$lat, search_str_madero_add$results$geometry$location$lat)
+lon<-c(search_str_madero$results$geometry$location$lng, search_str_madero_add$results$geometry$location$lng)
+```
+
+```{r}
+data_madero<-data.frame(business_name,business_rating,user_ratings_total,place_id,lat,lon)
+data_top_ratings_madero <- data_madero %>% slice_max(business_rating, n = 10)
+data_low_ratings_madero <- data_madero %>% slice_min(business_rating, n = 10)
+```
+
+#### Top 10 Mejores
+
+```{r}
+top_ratings_plot_madero <- ggplot(data_top_ratings_madero, aes(x=reorder(business_name,business_rating), y=business_rating)) +
+  geom_bar(stat="identity", fill="lightblue") + 
+  labs(title="Top 10  Mejores Ratings Hoteles", subtitle = "ZMM") + 
+  coord_flip()
+top_ratings_plot_madero
+```
+
+```{r}
+low_ratings_plot_madero <- ggplot(data_top_ratings_madero, aes(x=reorder(business_name,user_ratings_total), y=user_ratings_total)) + 
+  geom_bar(stat="identity", fill="lightblue") +
+  labs(title="Top 10 Mejor Calificados Hoteles", subtitle = "ZMM") + 
+  coord_flip()
+low_ratings_plot_madero
+```
+
+#### 10 Peores
+
+```{r}
+top_users_plot_madero <- ggplot(data_low_ratings_madero, aes(x=reorder(business_name,business_rating), y=business_rating)) + 
+  geom_bar(stat="identity", fill="lightpink") + 
+  labs(title="Hoteles - Low 10 User Ratings", subtitle = "ZMM") + 
+  coord_flip()
+top_users_plot_madero
+```
+
+```{r}
+low_users_plot_madero <- ggplot(data_low_ratings_madero, aes(x=reorder(business_name,user_ratings_total), y=user_ratings_total)) + 
+  geom_bar(stat="identity", fill="lightpink")+ 
+  labs(title="Hoteles - Low 10 Business Ratings", subtitle = "ZMM") + 
+  coord_flip()
+low_users_plot_madero
+```
+
+#### Mapa de Calor
+
+```{r}
+register_google(key = gmaps_key)
+ggmap(get_googlemap(center = c(lon = longitud_madero, lat = latitud_madero), zoom = 13)) +
+        stat_density2d(data = data_top_ratings_madero, aes(lon, lat, fill = ..level..), 
+                       geom = "polygon", alpha = 0.42) +
+        scale_fill_gradient(low = "green", high = "red", guide = "none") +
+  labs(x = '', y = '', title = "Calzada  - Hoteles with the Highest Ratings")
+```
+
+### Constitucion
+
+```{r}
+search_str_const<-google_places(search_string = 'hoteles', location=c(latitud_const,longitud_const), radius=r, key=gmaps_key)
+search_str_const_add<-google_places(search_string = 'hoteles', location=c(latitud_const,longitud_const), radius=r, key=gmaps_key, page_token = search_str_const$next_page_token)
+```
+
+```{r}
+business_name<-c(search_str_const$results$name, search_str_const_add$results$name)
+business_rating<-c(search_str_const$results$rating, search_str_const_add$results$rating)
+user_ratings_total<-c(search_str_const$results$user_ratings_total, search_str_const_add$results$user_ratings_total)
+place_id<-c(search_str_const$results$place_id, search_str_const_add$results$place_id)
+lat<-c(search_str_const$results$geometry$location$lat, search_str_const_add$results$geometry$location$lat)
+lon<-c(search_str_const$results$geometry$location$lng, search_str_const_add$results$geometry$location$lng)
+```
+
+```{r}
+data_const<-data.frame(business_name,business_rating,user_ratings_total,place_id,lat,lon)
+data_top_ratings_const <- data_const %>% slice_max(business_rating, n = 10)
+data_low_ratings_const <- data_const %>% slice_min(business_rating, n = 10)
+```
+
+#### Top 10 Mejores
+
+```{r}
+top_ratings_plot_const <- ggplot(data_top_ratings_const, aes(x=reorder(business_name,business_rating), y=business_rating)) +
+  geom_bar(stat="identity", fill="lightblue") + 
+  labs(title="Top 10  Mejores Ratings Hoteles", subtitle = "ZMM") + 
+  coord_flip()
+top_ratings_plot_const
+```
+
+```{r}
+low_ratings_plot_const <- ggplot(data_top_ratings_const, aes(x=reorder(business_name,user_ratings_total), y=user_ratings_total)) + 
+  geom_bar(stat="identity", fill="lightblue") +
+  labs(title="Top 10 Mejor Calificados Hoteles", subtitle = "ZMM") + 
+  coord_flip()
+low_ratings_plot_const
+```
+
+#### 10 Peores
+
+```{r}
+top_users_plot_const <- ggplot(data_low_ratings_const, aes(x=reorder(business_name,business_rating), y=business_rating)) + 
+  geom_bar(stat="identity", fill="lightpink") + 
+  labs(title="Hotels - Low 10 User Ratings", subtitle = "ZMM") + 
+  coord_flip()
+top_users_plot_const
+```
+
+```{r}
+low_users_plot_const <- ggplot(data_low_ratings_const, aes(x=reorder(business_name,user_ratings_total), y=user_ratings_total)) + 
+  geom_bar(stat="identity", fill="lightpink")+ 
+  labs(title="Hoteles - Low 10 Business Ratings", subtitle = "ZMM") + 
+  coord_flip()
+low_users_plot_const
+```
+
+#### Mapa de Calor
+
+```{r}
+register_google(key = gmaps_key)
+ggmap(get_googlemap(center = c(lon = longitud_const, lat = latitud_const), zoom = 13)) +
+        stat_density2d(data = data_top_ratings_const, aes(lon, lat, fill = ..level..), 
+                       geom = "polygon", alpha = 0.42) +
+        scale_fill_gradient(low = "green", high = "red", guide = "none") +
+  labs(x = '', y = '', title = "ZMM - Hoteles with the Highest Ratings")
+```
+
+## Word Cloud
+
+### Madero
+
+```{r}
+reviews_top_ratings_madero <- google_place_details(place_id = data_top_ratings_madero$place_id[10], key = gmaps_key)
+reviews_low_ratings_madero <- google_place_details(place_id = data_low_ratings_madero$place_id[10], key = gmaps_key)
+```
+
+```{r}
+top_ratings_text_madero <- reviews_top_ratings_madero$result$reviews$text
+top_ratings_doc_madero <- Corpus(VectorSource(top_ratings_text_madero))
+low_ratings_text_madero <- reviews_low_ratings_madero$result$reviews$text
+low_ratings_doc_madero <- Corpus(VectorSource(low_ratings_text_madero))
+```
+
+```{r}
+options(warn=-1)
+top_ratings_doc_madero <- top_ratings_doc_madero %>% tm_map(removeNumbers) %>% tm_map(removePunctuation) %>% tm_map(stripWhitespace)
+top_ratings_doc_madero <- tm_map(top_ratings_doc_madero, content_transformer(tolower))
+top_ratings_doc_madero <- tm_map(top_ratings_doc_madero, removeWords, stopwords("english"))
+```
+
+```{r}
+options(warn=-1)
+low_ratings_doc_madero <- low_ratings_doc_madero %>% tm_map(removeNumbers) %>% tm_map(removePunctuation) %>% tm_map(stripWhitespace)
+low_ratings_doc_madero <- tm_map(low_ratings_doc_madero, content_transformer(tolower))
+low_ratings_doc_madero <- tm_map(low_ratings_doc_madero, removeWords, stopwords("english"))
+```
+
+```{r}
+options(warn=-1)
+dtm_top_madero <- TermDocumentMatrix(top_ratings_doc_madero) 
+matrix_top_madero <- as.matrix(dtm_top_madero) 
+words_top_madero <- sort(rowSums(matrix_top_madero),decreasing=TRUE) 
+words_top_df_madero <- data.frame(word = names(words_top_madero),freq=words_top_madero)
+```
+
+```{r}
+options(warn=-1)
+dtm_low_madero <- TermDocumentMatrix(low_ratings_doc_madero) 
+matrix_low_madero <- as.matrix(dtm_low_madero) 
+words_low_madero <- sort(rowSums(matrix_low_madero),decreasing=TRUE) 
+words_low_df_madero <- data.frame(word = names(words_low_madero),freq=words_low_madero)
+```
+
+#### Top
+
+```{r}
+set.seed(1234) # for reproducibility 
+### top ratings 
+top_raiting_wc<-wordcloud(words = words_top_df_madero$word, freq = words_top_df_madero$freq, min.freq = 1, max.words=200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+```
+
+#### low ratings
+
+```{r}
+low_raiting_wc_madero<-wordcloud(words = words_low_df_madero$word, freq = words_low_df_madero$freq, min.freq = 1, max.words=200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+```
+
+### Constitucion
+
+```{r}
+reviews_top_ratings_const <- google_place_details(place_id = data_top_ratings_const$place_id[10], key = gmaps_key)
+reviews_low_ratings_const <- google_place_details(place_id = data_low_ratings_const$place_id[10], key = gmaps_key)
+```
+
+```{r}
+top_ratings_text_const <- reviews_top_ratings_const$result$reviews$text
+top_ratings_doc_const <- Corpus(VectorSource(top_ratings_text_const))
+low_ratings_text_const <- reviews_low_ratings_const$result$reviews$text
+low_ratings_doc_const <- Corpus(VectorSource(low_ratings_text_const))
+```
+
+```{r}
+options(warn=-1)
+top_ratings_doc_const <- top_ratings_doc_const %>% tm_map(removeNumbers) %>% tm_map(removePunctuation) %>% tm_map(stripWhitespace)
+top_ratings_doc_const <- tm_map(top_ratings_doc_const, content_transformer(tolower))
+top_ratings_doc_const <- tm_map(top_ratings_doc_const, removeWords, stopwords("english"))
+```
+
+```{r}
+options(warn=-1)
+low_ratings_doc_const <- low_ratings_doc_const %>% tm_map(removeNumbers) %>% tm_map(removePunctuation) %>% tm_map(stripWhitespace)
+low_ratings_doc_const <- tm_map(low_ratings_doc_const, content_transformer(tolower))
+low_ratings_doc_const <- tm_map(low_ratings_doc_const, removeWords, stopwords("english"))
+```
+
+```{r}
+options(warn=-1)
+dtm_top_const <- TermDocumentMatrix(top_ratings_doc_const) 
+matrix_top_const <- as.matrix(dtm_top_const) 
+words_top_const <- sort(rowSums(matrix_top_const),decreasing=TRUE) 
+words_top_df_const <- data.frame(word = names(words_top_const),freq=words_top_const)
+```
+
+```{r}
+options(warn=-1)
+dtm_low_const <- TermDocumentMatrix(low_ratings_doc_const) 
+matrix_low_const <- as.matrix(dtm_low_const) 
+words_low_const <- sort(rowSums(matrix_low_const),decreasing=TRUE) 
+words_low_df_const <- data.frame(word = names(words_low_const),freq=words_low_const)
+```
+
+#### Top
+
+```{r}
+set.seed(1234) # for reproducibility 
+### top ratings 
+top_raiting_wc<-wordcloud(words = words_top_df_const$word, freq = words_top_df_const$freq, min.freq = 1, max.words=200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+```
+
+#### low ratings
+
+```{r}
+low_raiting_wc_const<-wordcloud(words = words_low_df_const$word, freq = words_low_df_const$freq, min.freq = 1, max.words=200, random.order=FALSE, rot.per=0.35, colors=brewer.pal(8, "Dark2"))
+```
+
+## AGEB
+
+```{r}
+ageb_a<-st_read("AGEB_Mty\\mty_ageb.shp")
+ageb_a<- read_sf("AGEB_Mty\\mty_ageb.shp")
+```
+### ZMM
+```{r}
+ageb_a$VPH_C_EL<-as.numeric(ageb_a$VPH_C_EL)
+tm_shape(ageb_a) +
+  tm_polygons(col = "VPH_C_EL", palette="Blues", style="quantile", n=8, title="Viviendas con Electricidad")+
+
+tmap_mode("view") 
+```
+
+Usamos la variable Viviendas Pobladas con Electricidad, esta variable nos da a entender como está el sector en cuanto a servicios básicos y refleja un poco de la situación de la zona
+
+Como podemos ver en la zona cerca de constitución hay mayor densidad con viviendas que tienen electricidad, mientras que en la zona cerca a Madero existen muchos valores missing o con valores menores, lo que indicaría un poco la situación socioeconómica.
+
+Ahora veamos un poco la situación a nivel estatal
+
+### Estado 
+```{r}
+ageb_b<-read.csv("ageb_datos_nl.csv")
+ageb_b<-ageb_b %>% filter(NOM_LOC=="Total del municipio")
+ageb_b$MUN<-as.numeric(ageb_b$MUN)
+```
+
+```{r}
+nl_map<-st_read("nl_map\\nl_map.shp")
+nl_map<- read_sf("nl_map\\nl_map.shp")
+nl_map$IDUNICO<-substr(nl_map$IDUNICO, start = 4, stop = nchar(nl_map$IDUNICO))
+nl_map$IDUNICO<-as.numeric(nl_map$IDUNICO)
+```
+
+```{r}
+ageb_state<- geo_join(nl_map,ageb_b,'IDUNICO','MUN',how='inner')
+```
+
+```{r}
+ageb_state$VPH_CEL<-as.numeric(ageb_state$VPH_CEL)
+
+tm_shape(ageb_state) +
+  tm_polygons(col = "VPH_CEL", palette="Blues", style="quantile", n=8, title="Viviendas con Electricidad")+
+  tm_text(text = "NOM_MUN", size = 0.8)
+```
+
+Observamos que mientras más cerca al municipio de Monterrey existen condiciones similares para municipios como Apodaca Y Guadalupe. Permitiendo ser zonas para replicar teniendo en cuenta que son puntos con interés. 
+
+# Matriz de Distancias
+
+```{r}
+zmm_locations <- geocode(c("Aeropuerto Internacional de Monterrey","Estadio BBVA", "Paseo Santa Lucía", "Parque Fundidora", "Fashion Drive","FIESTA AMERICANA PABELLON M MONTERREY","HOTEL MADERO EXPRESS"))
+
+zmm_locations_df <- as.data.frame(zmm_locations)
+
+zmm_locations_df <- zmm_locations_df %>%
+  mutate(Labels = c("Aeropuerto Internacional de Monterrey", "Estadio BBVA", "Paseo Santa Lucía", "Parque Fundidora", "Fashion Drive", "FIESTA AMERICANA PABELLON M MONTERREY","HOTEL MADERO EXPRESS"), 
+         Type = c("Aeropuerto", "Estadio de Fútbol", "Parque Público", "Parque Público", "Centro Comercial", "Hotel","Hotel"))
+
+```
+
+```{r}
+zmm_locations_df$location <- paste(zmm_locations_df$lat,zmm_locations_df$lon,sep = "+")
+```
+
+```{r}
+distancias<-gmapsdistance(origin = c("Aeropuerto Internacional de Monterrey","Estadio BBVA", "Paseo Santa Lucía", "Parque Fundidora", "Fashion Drive","FIESTA AMERICANA PABELLON M MONTERREY","HOTEL MADERO EXPRESS"),
+                            destination = c("Aeropuerto Internacional de Monterrey","Estadio BBVA", "Paseo Santa Lucía", "Parque Fundidora", "Fashion Drive","FIESTA AMERICANA PABELLON M MONTERREY","HOTEL MADERO EXPRESS"),
+                            mode = "driving",
+                            dep_date = "2025-05-15",
+                            dep_time = "10:00:00",
+                            key = gmaps_key)
+
+```
+
+```{r}
+kable(distancias$Time/60, format="html", caption = "Driving Times across ZMM") %>% kableExtra::column_spec(1, bold = TRUE) 
+```
+
+# Locaciones Estratégicas y Recomendaciones
+
+Entendiendo que los objetivos no son precisamente ubicar nuevas unidades de negocios, si no más bien manejar de mejor manera el tránsito y las unidades de negocio existente.
+
+-   Buscar mejorar los servicios básicos de la zona cerca a Francisco Madero para mejorar la calidad de los servicios hoteleros en la zona 
+
+-   Implementar hoteles en la zona cercana a Guadalupe y Apodaca ya que están en las zonas con mayor punto de interes que son el Estadio BBVA y el Aeropuerto 
+
+-   Reeplicar las condiciones de los hoteles de San Pedro y de Av. Constitución en sectores como Mitras ya que son una zona a la que se podría migrar con los hoteles como opción diferente a los ubicados en Madero
+
+-   Brindar minimo servicios de desayuno de calidad. Teniendo en cuenta que las opiniones bajas se basaban en la calidad de la comida ya que la consideraban baja
