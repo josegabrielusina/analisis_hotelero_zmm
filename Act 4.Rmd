@@ -197,7 +197,7 @@ r<-2000
 ```
 
 ```{r include=FALSE}
-gmaps_key<-"AIzaSyAFlX9YjZkn3Fe2b-fOJiVf6hhwVTxOxBU"
+gmaps_key<-"google_API"
 ```
 
 ### Madero
